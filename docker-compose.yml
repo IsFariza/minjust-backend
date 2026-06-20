@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: minjust-db
+    environment:
+      POSTGRES_DB: minjust
+      POSTGRES_USER: minjust
+      POSTGRES_PASSWORD: minjust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pg_isready -U minjust -d minjust"]
+    #   interval: 5s
+    #   timeout: 5s
+    #   retries: 10
+
+  app:
+    build: .
+    container_name: minjust-app
+    environment:
+      - HTTP_PORT=${HTTP_PORT}
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - PASSWORD_ENCRYPTION_KEY=${PASSWORD_ENCRYPTION_KEY}
+    ports:
+      - "${HTTP_PORT}:${HTTP_PORT}"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

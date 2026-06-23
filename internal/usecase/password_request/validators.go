@@ -11,16 +11,14 @@ type SystemValidator interface {
 	Validate(rawData json.RawMessage) error
 }
 
-type EOtinishInput struct {
+type ResetPasswordInput struct {
 	IIN string `json:"iin"`
 }
 
-type EOtinishValidator struct{}
-
-func (v EOtinishValidator) Validate(rawData json.RawMessage) error {
-	var input EOtinishInput
+func validateIIN(rawData json.RawMessage, systemName string) error {
+	var input ResetPasswordInput
 	if err := json.Unmarshal(rawData, &input); err != nil {
-		return errors.New("invalid input format for e.otinish")
+		return errors.New("invalid input format for system")
 	}
 
 	input.IIN = strings.TrimSpace(input.IIN)
@@ -30,4 +28,34 @@ func (v EOtinishValidator) Validate(rawData json.RawMessage) error {
 	}
 
 	return nil
+}
+
+type EOtinishValidator struct{}
+
+func (v EOtinishValidator) Validate(rawData json.RawMessage) error {
+	return validateIIN(rawData, "E-otinish")
+}
+
+type DocumentologValidator struct{}
+
+func (v DocumentologValidator) Validate(rawData json.RawMessage) error {
+	return validateIIN(rawData, "ИС Documentolog")
+}
+
+type EpsMailValidator struct{}
+
+func (v EpsMailValidator) Validate(rawData json.RawMessage) error {
+	return validateIIN(rawData, "EPS")
+}
+
+type EKyzmetValidator struct{}
+
+func (v EKyzmetValidator) Validate(rawData json.RawMessage) error {
+	return validateIIN(rawData, "E-kyzmet")
+}
+
+type ActiveDirectoryValidator struct{}
+
+func (v ActiveDirectoryValidator) Validate(rawData json.RawMessage) error {
+	return validateIIN(rawData, "AD")
 }

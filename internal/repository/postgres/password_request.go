@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"minjust-website/internal/domain"
 )
@@ -15,10 +16,25 @@ func NewPostgresPasswordRequestRepository(db *sql.DB) domain.PasswordRequestRepo
 }
 
 func (r *postgresPasswordRequestRepository) Create(req *domain.PasswordRequest) error {
+	var input struct {
+		IIN string `json:"iin"`
+	}
+	if err := json.Unmarshal(req.InputData, &input); err != nil {
+		return errors.New("failed to parse IIN from request data")
+	}
+	var employeeExists bool
+	checkQuery := `SELECT EXISTS(SELECT 1 FROM employee_accounts WHERE iin = $1)`
+	err := r.db.QueryRow(checkQuery, input.IIN).Scan(&employeeExists)
+	if err != nil {
+		return err
+	}
+	if !employeeExists {
+		return errors.New("employee with this IIN does not exist")
+	}
 	query := `
-		INSERT INTO password_requests (employee_id, system_name, input_data, status)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at, updated_at`
+		INSERT INTO password_requests (system_name, input_data, status)
+		VALUES ($1, $2, $3)
+		RETURNING  id, created_at, updated_at`
 
 	return r.db.QueryRow(query, req.EmployeeID, req.SystemName, req.InputData, req.Status).
 		Scan(&req.ID, &req.CreatedAt, &req.UpdatedAt)

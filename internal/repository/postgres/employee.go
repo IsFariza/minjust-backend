@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"minjust-website/internal/domain"
-	"strings"
 )
 
 type postgresEmployeeRepository struct {
@@ -38,33 +37,29 @@ func (r *postgresEmployeeRepository) GetManagement() ([]domain.Employee, error) 
 }
 
 func (r *postgresEmployeeRepository) CreateAccount(emp *domain.EmployeeAccount) error {
-	query := `
-        INSERT INTO employee_accounts (iin, fullname, email, phone, department, position)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, created_at`
 
-	err := r.db.QueryRow(
-		query,
-		emp.IIN,
-		emp.FullName,
-		emp.Email,
-		emp.Phone,
-		emp.Department,
-		emp.Position,
-	).Scan(&emp.ID, &emp.CreatedAt)
-
-	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique_iin") {
-			return errors.New("employee with this IIN already exists")
-		}
-		return err
+	var existsIIN bool
+	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM employee_accounts WHERE iin=$1)", emp.IIN).Scan(&existsIIN)
+	if existsIIN {
+		return errors.New("this IIN already exists")
+	}
+	var existsEmail bool
+	err = r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM employee_accounts WHERE email=$1)", emp.Email).Scan(&existsEmail)
+	if existsEmail {
+		return errors.New("this email already exists")
 	}
 
-	return nil
+	query := `
+        INSERT INTO employee_accounts (fullname, iin, position, department, management, cabinet, phone_work, phone_personal, email, password)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, created_at`
+
+	err = r.db.QueryRow(query, emp.FullName, emp.IIN, emp.Position, emp.Department, emp.Management, emp.Cabinet, emp.PhoneWork, emp.PhonePersonal, emp.Email, emp.Password).Scan(&emp.ID, &emp.CreatedAt)
+	return err
 }
 
 func (r *postgresEmployeeRepository) GetAllAccounts() ([]domain.EmployeeAccount, error) {
-	query := `SELECT id, iin, fullname, email, phone, department, position, created_at FROM employee_accounts ORDER BY id DESC`
+	query := `SELECT id, fullname, iin, position, department, management, cabinet, phone_work, phone_personal, email, created_at FROM employee_accounts ORDER BY id DESC`
 
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -75,7 +70,19 @@ func (r *postgresEmployeeRepository) GetAllAccounts() ([]domain.EmployeeAccount,
 	var accounts []domain.EmployeeAccount
 	for rows.Next() {
 		var acc domain.EmployeeAccount
-		err := rows.Scan(&acc.ID, &acc.IIN, &acc.FullName, &acc.Email, &acc.Phone, &acc.Department, &acc.Position, &acc.CreatedAt)
+		err := rows.Scan(
+			&acc.ID,
+			&acc.FullName,
+			&acc.IIN,
+			&acc.Position,
+			&acc.Department,
+			&acc.Management,
+			&acc.Cabinet,
+			&acc.PhoneWork,
+			&acc.PhonePersonal,
+			&acc.Email,
+			&acc.CreatedAt,
+		)
 		if err != nil {
 			return nil, err
 		}

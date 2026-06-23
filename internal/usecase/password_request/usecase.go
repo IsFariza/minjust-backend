@@ -106,20 +106,29 @@ func (u *passwordRequestUsecase) ProcessRequest(id int64, status, password, comm
 }
 
 func defaultPrimaryPassword(req *domain.PasswordRequest) (string, error) {
+	var payload ResetPasswordInput
+	if err := json.Unmarshal(req.InputData, &payload); err != nil {
+		return "", errors.New("failed to parse IIN from request data")
+	}
+	payload.IIN = strings.TrimSpace(payload.IIN)
+
 	switch req.SystemName {
 	case "e.otinish":
-		var payload eOtinishPayload
-		if err := json.Unmarshal(req.InputData, &payload); err != nil {
-			return "", errors.New("failed to generate password from request data")
-		}
-
-		payload.IIN = strings.TrimSpace(payload.IIN)
-		if payload.IIN == "" {
-			return "", errors.New("iin is missing in request data")
-		}
-
 		return payload.IIN, nil
+
+	case "documentolog":
+		return os.Getenv("DEFAULT_PASSWORD_DOCUMENTOLOG"), nil
+
+	case "eps":
+		return os.Getenv("DEFAULT_PASSWORD_EPS"), nil
+
+	case "e-kyzmet":
+		return os.Getenv("DEFAULT_PASSWORD_EKYZMET"), nil
+
+	case "ad":
+		return os.Getenv("DEFAULT_PASSWORD_AD"), nil
+
 	default:
-		return os.Getenv("DEFAULT_RESET_PASSWORD"), nil
+		return os.Getenv("DEFAULT_PASSWORD"), nil
 	}
 }

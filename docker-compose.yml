@@ -20,15 +20,12 @@ services:
   app:
     build: .
     container_name: minjust-app
-    environment:
-      - HTTP_PORT=${HTTP_PORT}
-      - DATABASE_URL=${DATABASE_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - PASSWORD_ENCRYPTION_KEY=${PASSWORD_ENCRYPTION_KEY}
     ports:
       - "${HTTP_PORT}:${HTTP_PORT}"
     depends_on:
       - db
+    env_file:
+      - .env
 
 volumes:
   postgres_data:

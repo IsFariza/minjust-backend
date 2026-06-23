@@ -6,6 +6,8 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type employeeUsecase struct {
@@ -23,12 +25,16 @@ func (u *employeeUsecase) GetManagementHandbook() ([]domain.Employee, error) {
 func (u *employeeUsecase) CreateAccount(employee *domain.EmployeeAccount) error {
 	employee.IIN = strings.TrimSpace(employee.IIN)
 	employee.FullName = strings.TrimSpace(employee.FullName)
-	employee.Email = strings.TrimSpace(strings.ToLower(employee.Email))
-	employee.Phone = strings.TrimSpace(employee.Phone)
-	employee.Department = strings.TrimSpace(employee.Department)
 	employee.Position = strings.TrimSpace(employee.Position)
+	employee.Department = strings.TrimSpace(employee.Department)
+	employee.Management = strings.TrimSpace(employee.Management)
+	employee.Cabinet = strings.TrimSpace(employee.Cabinet)
+	employee.PhoneWork = strings.TrimSpace(employee.PhoneWork)
+	employee.PhonePersonal = strings.TrimSpace(employee.PhonePersonal)
+	employee.Email = strings.TrimSpace(strings.ToLower(employee.Email))
 
-	if employee.FullName == "" || employee.Email == "" || employee.Phone == "" || employee.Department == "" || employee.Position == "" {
+	if employee.IIN == "" || employee.FullName == "" || employee.Position == "" || employee.Department == "" || employee.Management == "" ||
+		employee.PhonePersonal == "" || employee.Email == "" {
 		return errors.New("all required fields must be filled")
 	}
 
@@ -40,6 +46,11 @@ func (u *employeeUsecase) CreateAccount(employee *domain.EmployeeAccount) error 
 	if _, err := mail.ParseAddress(employee.Email); err != nil {
 		return errors.New("email has invalid format")
 	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(employee.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return errors.New("failed to hash the password")
+	}
+	employee.Password = string(hashedPassword)
 
 	return u.repo.CreateAccount(employee)
 }

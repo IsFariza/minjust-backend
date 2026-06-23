@@ -14,14 +14,18 @@ type Employee struct {
 }
 
 type EmployeeAccount struct {
-	ID         int64     `json:"id"`
-	IIN        string    `json:"iin"`
-	FullName   string    `json:"fullname"`
-	Email      string    `json:"email"`
-	Phone      string    `json:"phone"`
-	Department string    `json:"department"`
-	Position   string    `json:"position"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID            int64     `json:"id"`
+	FullName      string    `json:"fullname" binding:"required"`
+	IIN           string    `json:"iin" binding:"required,len=12"`
+	Position      string    `json:"position" binding:"required"`
+	Department    string    `json:"department" binding:"required"`
+	Management    string    `json:"management" binding:"required"`
+	Cabinet       string    `json:"cabinet"`
+	PhoneWork     string    `json:"phone_work"`
+	PhonePersonal string    `json:"phone_personal"`
+	Email         string    `json:"email" binding:"required,email"`
+	Password      string    `json:"password" binding:"required,min=6"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type EmployeeRepository interface {

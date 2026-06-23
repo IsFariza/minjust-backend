@@ -3,11 +3,14 @@ package v1
 import (
 	"minjust-website/internal/transport/http/middleware"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(r *gin.Engine, secretKey string, reqHandler *RequestHandler, empHandler *EmployeeHandler, authHandler *AuthHandler) {
+	r.Use(cors.Default())
 	v1 := r.Group("/api/v1/")
+
 	{
 		v1.POST("/auth/login", authHandler.LoginH)
 		v1.POST("/employees", empHandler.CreateAccountH)

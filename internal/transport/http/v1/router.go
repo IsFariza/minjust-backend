@@ -13,7 +13,7 @@ func SetupRoutes(r *gin.Engine, secretKey string, reqHandler *RequestHandler, em
 
 	{
 		v1.POST("/auth/login", authHandler.LoginH)
-		v1.POST("/employees", empHandler.CreateAccountH)
+		v1.POST("/register", empHandler.CreateAccountH)
 		v1.POST("/password-reset", reqHandler.RequestResetPasswordH)
 		v1.GET("/password-reset/:id", reqHandler.CheckStatusH)
 		v1.GET("/handbook", empHandler.GetHandbookH)

@@ -21,23 +21,11 @@ type passwordRequestUsecase struct {
 }
 
 var supportedSystems = map[string]string{
-	"documentolog":        "Documentolog",
-	"ис documentolog":     "Documentolog",
-	"документолог":        "Documentolog",
-	"e-otinish":           "E-otinish",
-	"e.otinish":           "E-otinish",
-	"е-өтініш":            "E-otinish",
-	"e-өтініш":            "E-otinish",
-	"eps":                 "EPS",
-	"епс":                 "EPS",
-	"e-kyzmet":            "E-kyzmet",
-	"e.kyzmet":            "E-kyzmet",
-	"е-қызмет":            "E-kyzmet",
-	"e-қызмет":            "E-kyzmet",
-	"ad":                  "AD",
-	"active directory":    "AD",
-	"активный каталог":    "AD",
-	"активная директория": "AD",
+	"documentolog": "Documentolog",
+	"e-otinish":    "E-otinish",
+	"eps":          "EPS",
+	"e-kyzmet":     "E-kyzmet",
+	"ad":           "AD",
 }
 
 func NewPasswordRequestUsecase(repo domain.PasswordRequestRepository) domain.PasswordRequestUsecase {

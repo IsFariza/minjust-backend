@@ -24,7 +24,7 @@ func validateIIN(rawData json.RawMessage, systemName string) error {
 	input.IIN = strings.TrimSpace(input.IIN)
 	matched, _ := regexp.MatchString(`^\d{12}$`, input.IIN)
 	if !matched {
-		return errors.New("iin must contain exactly 12 digits")
+		return errors.New("ИИН должеен состоять ровно из 12 цифр")
 	}
 
 	return nil

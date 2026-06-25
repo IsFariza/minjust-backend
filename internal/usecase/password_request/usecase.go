@@ -1,134 +1,190 @@
 package password_request
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
 	"minjust-website/internal/crypto"
 	"minjust-website/internal/domain"
 	"os"
+	"regexp"
 	"strings"
 )
 
-type eOtinishPayload struct {
-	IIN string `json:"iin"`
-}
+const (
+	statusPending  = "pending"
+	statusApproved = "approved"
+	statusRejected = "rejected"
+)
 
 type passwordRequestUsecase struct {
-	repo       domain.PasswordRequestRepository
-	validators map[string]SystemValidator
-	secretKey  string
+	repo domain.PasswordRequestRepository
 }
 
-func NewPasswordRequestUsecase(repo domain.PasswordRequestRepository, secretKey string) domain.PasswordRequestUsecase {
-	return &passwordRequestUsecase{
-		repo:      repo,
-		secretKey: secretKey,
-		validators: map[string]SystemValidator{
-			"e.otinish": EOtinishValidator{},
-		},
+var supportedSystems = map[string]string{
+	"documentolog":        "Documentolog",
+	"ис documentolog":     "Documentolog",
+	"документолог":        "Documentolog",
+	"e-otinish":           "E-otinish",
+	"e.otinish":           "E-otinish",
+	"е-өтініш":            "E-otinish",
+	"e-өтініш":            "E-otinish",
+	"eps":                 "EPS",
+	"епс":                 "EPS",
+	"e-kyzmet":            "E-kyzmet",
+	"e.kyzmet":            "E-kyzmet",
+	"е-қызмет":            "E-kyzmet",
+	"e-қызмет":            "E-kyzmet",
+	"ad":                  "AD",
+	"active directory":    "AD",
+	"активный каталог":    "AD",
+	"активная директория": "AD",
+}
+
+func NewPasswordRequestUsecase(repo domain.PasswordRequestRepository) domain.PasswordRequestUsecase {
+	return &passwordRequestUsecase{repo: repo}
+}
+
+func (u *passwordRequestUsecase) CreateRequest(empID int64, currentIIN, inputIIN, systemName string) error {
+	inputIIN = strings.TrimSpace(inputIIN)
+	currentIIN = strings.TrimSpace(currentIIN)
+
+	if !isValidIIN(inputIIN) {
+		return errors.New("ИИН должен состоять ровно из 12 цифр")
 	}
-}
+	if currentIIN != inputIIN {
+		return errors.New("введенный ИИН не совпадает с ИИН текущего пользователя")
+	}
 
-func (u *passwordRequestUsecase) GetRequestStatus(id int64) (*domain.PasswordRequest, error) {
-	req, err := u.repo.GetByID(id)
+	normalizedSystem, err := normalizeSystemName(systemName)
 	if err != nil {
-		return nil, err
-	}
-
-	if req.PrimaryPassword != "" {
-		password, err := crypto.Decrypt(req.PrimaryPassword, u.secretKey)
-		if err != nil {
-			return nil, errors.New("failed to read primary password")
-		}
-		req.PrimaryPassword = password
-	}
-
-	return req, nil
-}
-
-func (u *passwordRequestUsecase) RequestResetPassword(req *domain.PasswordRequest) error {
-	req.SystemName = strings.ToLower(strings.TrimSpace(req.SystemName))
-
-	validator, exists := u.validators[req.SystemName]
-	if !exists {
-		return errors.New("selected system is not supported yet")
-	}
-
-	if err := validator.Validate(req.InputData); err != nil {
 		return err
 	}
 
-	req.Status = domain.StatusPending
-	req.PrimaryPassword = ""
-	req.AdminComment = ""
+	exists, err := u.repo.ExistsByEmployeeAndSystem(empID, normalizedSystem)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return errors.New("вы уже создали заявку на сброс пароля для этой системы")
+	}
 
+	req := &domain.PasswordRequest{
+		EmployeeID: empID,
+		SystemName: normalizedSystem,
+		Status:     statusPending,
+	}
 	return u.repo.Create(req)
 }
 
-func (u *passwordRequestUsecase) ProcessRequest(id int64, status, password, comment string) error {
+func (u *passwordRequestUsecase) GetEmployeeRequests(empID int64) ([]domain.PasswordRequest, error) {
+	requests, err := u.repo.GetByEmployeeID(empID)
+	if err != nil {
+		return nil, err
+	}
+	return decryptApprovedPasswords(requests)
+}
+
+func (u *passwordRequestUsecase) GetAllRequests() ([]domain.PasswordRequest, error) {
+	requests, err := u.repo.GetAll()
+	if err != nil {
+		return nil, err
+	}
+	return decryptApprovedPasswords(requests)
+}
+
+func (u *passwordRequestUsecase) ReviewRequest(id int64, status, reason string) error {
+	status = strings.TrimSpace(strings.ToLower(status))
+	reason = strings.TrimSpace(reason)
+
+	if status != statusApproved && status != statusRejected {
+		return errors.New("недопустимый статус заявки")
+	}
+
 	req, err := u.repo.GetByID(id)
 	if err != nil {
 		return err
 	}
-	if req.Status != domain.StatusPending {
-		return errors.New("this request has already been processed")
+	if req.Status != statusPending {
+		return errors.New("эта заявка уже обработана")
 	}
 
-	status = strings.ToLower(strings.TrimSpace(status))
-	password = strings.TrimSpace(password)
-	comment = strings.TrimSpace(comment)
-
-	switch status {
-	case domain.StatusApproved:
-		if password == "" {
-			password, err = defaultPrimaryPassword(req)
-			if err != nil {
-				return err
-			}
+	var encryptedPassword string
+	if status == statusRejected {
+		if reason == "" {
+			return errors.New("при отклонении заявки необходимо указать причину")
 		}
-
-		encryptedPassword, err := crypto.Encrypt(password, u.secretKey)
+	} else {
+		primaryPassword, err := primaryPasswordForRequest(req)
 		if err != nil {
-			return errors.New("failed to encrypt primary password")
+			return err
 		}
 
-		return u.repo.UpdateStatus(id, domain.StatusApproved, encryptedPassword, comment)
-
-	case domain.StatusRejected:
-		if comment == "" {
-			return errors.New("rejection reason is required")
+		encryptedPassword, err = crypto.Encrypt(primaryPassword, os.Getenv("PASSWORD_ENCRYPTION_KEY"))
+		if err != nil {
+			return errors.New("ошибка шифрования пароля")
 		}
-		return u.repo.UpdateStatus(id, domain.StatusRejected, "", comment)
+		reason = ""
+	}
 
+	return u.repo.UpdateStatus(id, status, encryptedPassword, reason)
+}
+
+func normalizeSystemName(systemName string) (string, error) {
+	key := strings.ToLower(strings.TrimSpace(systemName))
+	key = strings.ReplaceAll(key, "ё", "е")
+
+	if system, ok := supportedSystems[key]; ok {
+		return system, nil
+	}
+	return "", errors.New("указанная система не поддерживается")
+}
+
+func isValidIIN(iin string) bool {
+	matched, _ := regexp.MatchString(`^\d{12}$`, iin)
+	return matched
+}
+
+func primaryPasswordForRequest(req *domain.PasswordRequest) (string, error) {
+	switch req.SystemName {
+	case "Documentolog":
+		return requiredEnv("DEFAULT_PASSWORD_DOCUMENTOLOG")
+	case "EPS":
+		return requiredEnv("DEFAULT_PASSWORD_EPS")
+	case "E-kyzmet":
+		return requiredEnv("DEFAULT_PASSWORD_EKYZMET")
+	case "AD":
+		return requiredEnv("DEFAULT_PASSWORD_AD")
+	case "E-otinish":
+		if !isValidIIN(req.EmployeeIIN) {
+			return "", errors.New("у сотрудника нет корректного ИИН для первичного пароля E-otinish")
+		}
+		return req.EmployeeIIN, nil
 	default:
-		return errors.New("invalid status, use approved or rejected")
+		return "", errors.New("указанная система не поддерживается")
 	}
 }
 
-func defaultPrimaryPassword(req *domain.PasswordRequest) (string, error) {
-	var payload ResetPasswordInput
-	if err := json.Unmarshal(req.InputData, &payload); err != nil {
-		return "", errors.New("failed to parse IIN from request data")
+func requiredEnv(name string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return "", fmt.Errorf("не настроена переменная окружения %s", name)
 	}
-	payload.IIN = strings.TrimSpace(payload.IIN)
+	return value, nil
+}
 
-	switch req.SystemName {
-	case "e.otinish":
-		return payload.IIN, nil
+func decryptApprovedPasswords(requests []domain.PasswordRequest) ([]domain.PasswordRequest, error) {
+	key := os.Getenv("PASSWORD_ENCRYPTION_KEY")
+	for i := range requests {
+		if requests[i].Status != statusApproved || requests[i].PrimaryPassword == "" {
+			requests[i].PrimaryPassword = ""
+			continue
+		}
 
-	case "documentolog":
-		return os.Getenv("DEFAULT_PASSWORD_DOCUMENTOLOG"), nil
-
-	case "eps":
-		return os.Getenv("DEFAULT_PASSWORD_EPS"), nil
-
-	case "e-kyzmet":
-		return os.Getenv("DEFAULT_PASSWORD_EKYZMET"), nil
-
-	case "ad":
-		return os.Getenv("DEFAULT_PASSWORD_AD"), nil
-
-	default:
-		return os.Getenv("DEFAULT_PASSWORD"), nil
+		password, err := crypto.Decrypt(requests[i].PrimaryPassword, key)
+		if err != nil {
+			return nil, errors.New("ошибка расшифровки первичного пароля")
+		}
+		requests[i].PrimaryPassword = password
 	}
+	return requests, nil
 }

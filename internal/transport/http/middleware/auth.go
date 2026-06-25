@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func AuthMiddleware(secretKey string, requiredRole string) gin.HandlerFunc {
+func AuthMiddleware(secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -30,13 +30,35 @@ func AuthMiddleware(secretKey string, requiredRole string) gin.HandlerFunc {
 			return
 		}
 
-		if claims.Role != requiredRole {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "you have no rights for this action"})
+		c.Set("userId", claims.UserID)
+		c.Set("userRole", claims.Role)
+		c.Set("userIIN", claims.IIN)
+
+		c.Next()
+	}
+}
+
+func RoleBlockMiddleware(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("userRole")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 			return
 		}
 
-		c.Set("userId", claims.UserID)
-		c.Set("userRole", claims.Role)
+		userRoleStr := role.(string)
+		isAllowed := false
+		for _, r := range allowedRoles {
+			if userRoleStr == r {
+				isAllowed = true
+				break
+			}
+		}
+
+		if !isAllowed {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "у вас нет прав для совершения этого действия"})
+			return
+		}
 
 		c.Next()
 	}

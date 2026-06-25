@@ -9,6 +9,7 @@ type Admin struct {
 type LoginInput struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	Role     string `json:"role" binding:"required"`
 }
 
 type AuthRepository interface {
@@ -16,5 +17,5 @@ type AuthRepository interface {
 }
 
 type AuthUsecase interface {
-	Login(username, password string) (string, error)
+	Login(username, password, role string) (string, error)
 }

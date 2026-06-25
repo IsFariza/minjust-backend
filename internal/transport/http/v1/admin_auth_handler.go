@@ -18,11 +18,11 @@ func NewAuthHandler(u domain.AuthUsecase) *AuthHandler {
 func (h *AuthHandler) LoginH(c *gin.Context) {
 	var input domain.LoginInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request format"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат данных"})
 		return
 	}
 
-	token, err := h.usecase.Login(input.Username, input.Password)
+	token, err := h.usecase.Login(input.Username, input.Password, input.Role)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return

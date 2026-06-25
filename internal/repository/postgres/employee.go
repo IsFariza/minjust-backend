@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"minjust-website/internal/domain"
+	"strings"
+
+	"github.com/lib/pq"
 )
 
 type postgresEmployeeRepository struct {
@@ -35,27 +38,41 @@ func (r *postgresEmployeeRepository) GetManagement() ([]domain.Employee, error) 
 
 	return managers, rows.Err()
 }
-
 func (r *postgresEmployeeRepository) CreateAccount(emp *domain.EmployeeAccount) error {
-
-	var existsIIN bool
-	err := r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM employee_accounts WHERE iin=$1)", emp.IIN).Scan(&existsIIN)
-	if existsIIN {
-		return errors.New("this IIN already exists")
-	}
-	var existsEmail bool
-	err = r.db.QueryRow("SELECT EXISTS(SELECT 1 FROM employee_accounts WHERE email=$1)", emp.Email).Scan(&existsEmail)
-	if existsEmail {
-		return errors.New("this email already exists")
-	}
-
 	query := `
         INSERT INTO employee_accounts (fullname, iin, position, department, management, cabinet, phone_work, phone_personal, email, password)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, created_at`
 
-	err = r.db.QueryRow(query, emp.FullName, emp.IIN, emp.Position, emp.Department, emp.Management, emp.Cabinet, emp.PhoneWork, emp.PhonePersonal, emp.Email, emp.Password).Scan(&emp.ID, &emp.CreatedAt)
-	return err
+	err := r.db.QueryRow(
+		query,
+		emp.FullName,
+		emp.IIN,
+		emp.Position,
+		emp.Department,
+		emp.Management,
+		emp.Cabinet,
+		emp.PhoneWork,
+		emp.PhonePersonal,
+		emp.Email,
+		emp.Password,
+	).Scan(&emp.ID, &emp.CreatedAt)
+
+	if err != nil {
+		if pgErr, ok := err.(*pq.Error); ok {
+			if pgErr.Code == "23505" { // UniqueViolation
+				if strings.Contains(pgErr.Message, "iin") {
+					return errors.New("этот ИИН уже зарегистрирован")
+				}
+				if strings.Contains(pgErr.Message, "email") {
+					return errors.New("этот email уже зарегистрирован")
+				}
+			}
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (r *postgresEmployeeRepository) GetAllAccounts() ([]domain.EmployeeAccount, error) {
@@ -94,4 +111,73 @@ func (r *postgresEmployeeRepository) GetAllAccounts() ([]domain.EmployeeAccount,
 	}
 
 	return accounts, nil
+}
+
+func (r *postgresEmployeeRepository) GetByID(id int64) (*domain.EmployeeAccount, error) {
+	query := `
+        SELECT 
+            id, iin, fullname, department, management, position, 
+            COALESCE(cabinet, ''), 
+            COALESCE(phone_personal, ''), 
+            COALESCE(phone_work, ''), 
+            email,
+            created_at 
+        FROM employee_accounts 
+        WHERE id = $1`
+
+	row := r.db.QueryRow(query, id)
+
+	var emp domain.EmployeeAccount
+	err := row.Scan(
+		&emp.ID,
+		&emp.IIN,
+		&emp.FullName,
+		&emp.Department,
+		&emp.Management,
+		&emp.Position,
+		&emp.Cabinet,
+		&emp.PhonePersonal,
+		&emp.PhoneWork,
+		&emp.Email,
+		&emp.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &emp, nil
+}
+
+func (r *postgresEmployeeRepository) GetByIIN(iin string) (*domain.EmployeeAccount, error) {
+	query := `
+        SELECT id, iin, fullname, department, management, position,
+            COALESCE(cabinet, ''),
+            COALESCE(phone_personal, ''),
+            COALESCE(phone_work, ''),
+            email,
+            password,
+            created_at
+        FROM employee_accounts 
+        WHERE iin = $1`
+
+	row := r.db.QueryRow(query, iin)
+
+	var emp domain.EmployeeAccount
+	err := row.Scan(
+		&emp.ID,
+		&emp.IIN,
+		&emp.FullName,
+		&emp.Department,
+		&emp.Management,
+		&emp.Position,
+		&emp.Cabinet,
+		&emp.PhonePersonal,
+		&emp.PhoneWork,
+		&emp.Email,
+		&emp.Password,
+		&emp.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &emp, nil
 }

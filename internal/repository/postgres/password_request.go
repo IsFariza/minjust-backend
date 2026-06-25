@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"minjust-website/internal/domain"
 )
@@ -16,79 +15,114 @@ func NewPostgresPasswordRequestRepository(db *sql.DB) domain.PasswordRequestRepo
 }
 
 func (r *postgresPasswordRequestRepository) Create(req *domain.PasswordRequest) error {
-	var input struct {
-		IIN string `json:"iin"`
-	}
-	if err := json.Unmarshal(req.InputData, &input); err != nil {
-		return errors.New("failed to parse IIN from request data")
-	}
-	var employeeExists bool
-	checkQuery := `SELECT EXISTS(SELECT 1 FROM employee_accounts WHERE iin = $1)`
-	err := r.db.QueryRow(checkQuery, input.IIN).Scan(&employeeExists)
-	if err != nil {
-		return err
-	}
-	if !employeeExists {
-		return errors.New("employee with this IIN does not exist")
-	}
-	query := `
-		INSERT INTO password_requests (system_name, input_data, status)
-		VALUES ($1, $2, $3)
-		RETURNING  id, created_at, updated_at`
+	query := `INSERT INTO password_requests (employee_id, system_name, status, input_data) 
+	          VALUES ($1, $2, 'pending', '{}'::jsonb)`
+	_, err := r.db.Exec(query, req.EmployeeID, req.SystemName)
+	return err
+}
 
-	return r.db.QueryRow(query, req.EmployeeID, req.SystemName, req.InputData, req.Status).
-		Scan(&req.ID, &req.CreatedAt, &req.UpdatedAt)
+func (r *postgresPasswordRequestRepository) ExistsByEmployeeAndSystem(empID int64, systemName string) (bool, error) {
+	query := `SELECT EXISTS(
+		SELECT 1 FROM password_requests
+		WHERE employee_id = $1 AND system_name = $2
+	)`
+
+	var exists bool
+	err := r.db.QueryRow(query, empID, systemName).Scan(&exists)
+	return exists, err
 }
 
 func (r *postgresPasswordRequestRepository) GetByID(id int64) (*domain.PasswordRequest, error) {
-	query := `
-		SELECT id, employee_id, system_name, input_data, status, primary_password, admin_comment, created_at, updated_at
-		FROM password_requests
-		WHERE id = $1`
+	query := `SELECT r.id, r.employee_id, r.system_name, r.status, COALESCE(r.primary_password, ''),
+	          COALESCE(r.admin_comment, ''), r.created_at, COALESCE(r.updated_at, r.created_at),
+	          e.fullname, e.iin
+	          FROM password_requests r
+	          JOIN employee_accounts e ON r.employee_id = e.id
+	          WHERE r.id = $1`
 
 	var req domain.PasswordRequest
-	var employeeID sql.NullInt64
-	var primaryPassword sql.NullString
-	var adminComment sql.NullString
-
 	err := r.db.QueryRow(query, id).Scan(
 		&req.ID,
-		&employeeID,
+		&req.EmployeeID,
 		&req.SystemName,
-		&req.InputData,
 		&req.Status,
-		&primaryPassword,
-		&adminComment,
+		&req.PrimaryPassword,
+		&req.RejectionReason,
 		&req.CreatedAt,
 		&req.UpdatedAt,
+		&req.EmployeeName,
+		&req.EmployeeIIN,
 	)
 	if err == sql.ErrNoRows {
-		return nil, errors.New("request not found")
+		return nil, errors.New("заявка не найдена")
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	if employeeID.Valid {
-		req.EmployeeID = &employeeID.Int64
-	}
-	if primaryPassword.Valid {
-		req.PrimaryPassword = primaryPassword.String
-	}
-	if adminComment.Valid {
-		req.AdminComment = adminComment.String
-	}
-
 	return &req, nil
 }
 
-func (r *postgresPasswordRequestRepository) UpdateStatus(id int64, status, encryptedPassword, comment string) error {
-	query := `
-		UPDATE password_requests
-		SET status = $1, primary_password = NULLIF($2, ''), admin_comment = NULLIF($3, ''), updated_at = CURRENT_TIMESTAMP
-		WHERE id = $4`
+func (r *postgresPasswordRequestRepository) GetByEmployeeID(empID int64) ([]domain.PasswordRequest, error) {
+	query := `SELECT id, employee_id, system_name, status, COALESCE(primary_password, ''), COALESCE(admin_comment, ''), created_at, 
+	          COALESCE(updated_at, created_at) FROM password_requests WHERE employee_id = $1 ORDER BY created_at DESC`
 
-	result, err := r.db.Exec(query, status, encryptedPassword, comment, id)
+	rows, err := r.db.Query(query, empID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var requests []domain.PasswordRequest
+	for rows.Next() {
+		var req domain.PasswordRequest
+		err := rows.Scan(&req.ID, &req.EmployeeID, &req.SystemName, &req.Status, &req.PrimaryPassword, &req.RejectionReason, &req.CreatedAt, &req.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		requests = append(requests, req)
+	}
+	return requests, rows.Err()
+}
+
+func (r *postgresPasswordRequestRepository) GetAll() ([]domain.PasswordRequest, error) {
+	query := `SELECT r.id, r.employee_id, r.system_name, r.status, COALESCE(r.primary_password, ''), COALESCE(r.admin_comment, ''), r.created_at, COALESCE(r.updated_at, r.created_at), e.fullname, e.iin 
+	          FROM password_requests r
+	          JOIN employee_accounts e ON r.employee_id = e.id
+	          ORDER BY r.created_at DESC`
+
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var requests []domain.PasswordRequest
+	for rows.Next() {
+		var req domain.PasswordRequest
+		err := rows.Scan(
+			&req.ID,
+			&req.EmployeeID,
+			&req.SystemName,
+			&req.Status,
+			&req.PrimaryPassword,
+			&req.RejectionReason,
+			&req.CreatedAt,
+			&req.UpdatedAt,
+			&req.EmployeeName,
+			&req.EmployeeIIN,
+		)
+		if err != nil {
+			return nil, err
+		}
+		requests = append(requests, req)
+	}
+	return requests, rows.Err()
+}
+func (r *postgresPasswordRequestRepository) UpdateStatus(id int64, status, password, reason string) error {
+	query := `UPDATE password_requests
+	          SET status = $1, primary_password = NULLIF($2, ''), admin_comment = NULLIF($3, ''), updated_at = NOW()
+	          WHERE id = $4`
+	result, err := r.db.Exec(query, status, password, reason, id)
 	if err != nil {
 		return err
 	}
@@ -98,8 +132,7 @@ func (r *postgresPasswordRequestRepository) UpdateStatus(id int64, status, encry
 		return err
 	}
 	if rowsAffected == 0 {
-		return errors.New("request not found")
+		return errors.New("заявка не найдена")
 	}
-
-	return nil
+	return err
 }

@@ -4,17 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"time"
-
 	"minjust-website/internal/config"
 	"minjust-website/internal/repository/postgres"
 	v1 "minjust-website/internal/transport/http/v1"
-	authUsecase "minjust-website/internal/usecase/admin_auth"
-	employeeUsecase "minjust-website/internal/usecase/employee"
-	passwordUsecase "minjust-website/internal/usecase/password_request"
+	"minjust-website/internal/usecase/admin_auth"
+	"minjust-website/internal/usecase/employee"
+	"minjust-website/internal/usecase/password_request"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func Run(cfg *config.Config) {
@@ -28,9 +26,9 @@ func Run(cfg *config.Config) {
 	passwordRepo := postgres.NewPostgresPasswordRequestRepository(db)
 	authRepo := postgres.NewPostgresAuthRepository(db)
 
-	employeeUC := employeeUsecase.NewEmployeeUsecase(employeeRepo)
-	passwordUC := passwordUsecase.NewPasswordRequestUsecase(passwordRepo, cfg.PasswordEncryptionKey)
-	authUC := authUsecase.NewAuthUsecase(authRepo, cfg.JWTSecret)
+	employeeUC := employee.NewEmployeeUsecase(employeeRepo)
+	passwordUC := password_request.NewPasswordRequestUsecase(passwordRepo)
+	authUC := admin_auth.NewAuthUsecase(authRepo, employeeRepo, cfg.JWTSecret)
 
 	authHandler := v1.NewAuthHandler(authUC)
 	reqHandler := v1.NewRequestHandler(passwordUC)
@@ -47,7 +45,7 @@ func Run(cfg *config.Config) {
 }
 
 func connectDB(databaseURL string) (*sql.DB, error) {
-	db, err := sql.Open("pgx", databaseURL)
+	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		return nil, err
 	}

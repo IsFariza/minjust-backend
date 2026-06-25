@@ -16,65 +16,88 @@ func NewRequestHandler(u domain.PasswordRequestUsecase) *RequestHandler {
 	return &RequestHandler{usecase: u}
 }
 
-func (h *RequestHandler) RequestResetPasswordH(c *gin.Context) {
-	var req domain.PasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+func (h *RequestHandler) CreateRequestH(c *gin.Context) {
+	empIDVal, ok1 := c.Get("userId")
+	userIINVal, ok2 := c.Get("userIIN")
+
+	if !ok1 || !ok2 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "неавторизованный запрос"})
+		return
+	}
+
+	empID, okId := empIDVal.(int64)
+	userIIN, okIin := userIINVal.(string)
+
+	if !okId || !okIin {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка обработки данных авторизации"})
+		return
+	}
+
+	var input domain.CreatePasswordRequestInput
+	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request format"})
 		return
 	}
 
-	if err := h.usecase.RequestResetPassword(&req); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"message":    "password reset request created",
-		"request_id": req.ID,
-		"status":     req.Status,
-	})
-}
-
-func (h *RequestHandler) CheckStatusH(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request id"})
-		return
-	}
-
-	req, err := h.usecase.GetRequestStatus(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, req)
-}
-
-type ProcessRequestInput struct {
-	Status            string `json:"status" binding:"required"`
-	GeneratedPassword string `json:"generated_password"`
-	AdminComment      string `json:"admin_comment"`
-}
-
-func (h *RequestHandler) ProcessRequestH(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request id"})
-		return
-	}
-
-	var input ProcessRequestInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid process request format"})
-		return
-	}
-
-	err = h.usecase.ProcessRequest(id, input.Status, input.GeneratedPassword, input.AdminComment)
+	err := h.usecase.CreateRequest(empID, userIIN, input.EmployeeIIN, input.SystemName)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "request processed by admin"})
+	c.JSON(http.StatusCreated, gin.H{"message": "заявка успешно создана"})
+}
+
+func (h *RequestHandler) GetMyRequestsH(c *gin.Context) {
+	empID, _ := c.Get("userId")
+
+	requests, err := h.usecase.GetEmployeeRequests(empID.(int64))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, requests)
+}
+
+func (h *RequestHandler) GetAllRequestsH(c *gin.Context) {
+	role, exists := c.Get("userRole")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "доступ запрещен"})
+		return
+	}
+
+	requests, err := h.usecase.GetAllRequests()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, requests)
+}
+
+func (h *RequestHandler) ReviewRequestH(c *gin.Context) {
+	role, _ := c.Get("userRole")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "доступ запрещен"})
+		return
+	}
+
+	reqID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ID"})
+		return
+	}
+
+	var input domain.UpdatePasswordStatusInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request format"})
+		return
+	}
+
+	err = h.usecase.ReviewRequest(reqID, input.Status, input.RejectionReason)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "статус заявки обновлен"})
 }

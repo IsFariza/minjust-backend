@@ -20,7 +20,7 @@ func (r *postgresAuthRepository) GetByUsername(username string) (*domain.Admin, 
 	var admin domain.Admin
 	err := r.db.QueryRow(query, username).Scan(&admin.ID, &admin.Username, &admin.PasswordHash)
 	if err == sql.ErrNoRows {
-		return nil, errors.New("admin not found")
+		return nil, errors.New("админ не найден")
 	}
 	return &admin, err
 }

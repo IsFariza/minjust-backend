@@ -34,26 +34,35 @@ func (u *employeeUsecase) CreateAccount(employee *domain.EmployeeAccount) error 
 	employee.Email = strings.TrimSpace(strings.ToLower(employee.Email))
 
 	if employee.IIN == "" || employee.FullName == "" || employee.Position == "" || employee.Department == "" || employee.Management == "" ||
-		employee.PhonePersonal == "" || employee.Email == "" {
-		return errors.New("all required fields must be filled")
+		employee.PhonePersonal == "" || employee.Email == "" || employee.Password == "" {
+		return errors.New("все обязательные поля должны быть заполнены")
 	}
 
 	matched, _ := regexp.MatchString(`^\d{12}$`, employee.IIN)
 	if !matched {
-		return errors.New("iin must contain exactly 12 digits")
+		return errors.New("ИИН должен содержать ровно 12 цифр")
 	}
 
 	if _, err := mail.ParseAddress(employee.Email); err != nil {
-		return errors.New("email has invalid format")
+		return errors.New("неверный формат email")
 	}
+	if len(employee.Password) < 6 {
+		return errors.New("пароль учетной записи должен содержать минимум 6 символов")
+	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(employee.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return errors.New("failed to hash the password")
+		return errors.New("не удалось захешировать пароль")
 	}
 	employee.Password = string(hashedPassword)
 
 	return u.repo.CreateAccount(employee)
 }
+
 func (u *employeeUsecase) GetAllAccounts() ([]domain.EmployeeAccount, error) {
 	return u.repo.GetAllAccounts()
+}
+
+func (u *employeeUsecase) GetProfile(id int64) (*domain.EmployeeAccount, error) {
+	return u.repo.GetByID(id)
 }
